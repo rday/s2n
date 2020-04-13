@@ -94,10 +94,6 @@ let conn_handshake_handshake_type pconn =
 let conn_handshake_message_number pconn =
     crucible_field (crucible_field pconn "handshake") "message_number";
 
-//conn->handshake.hello_retry_request
-let conn_handshake_hello_retry_request pconn =
-    crucible_field (crucible_field pconn "handshake") "hello_retry_request";
-
 //conn->handshake_params.our_chain_and_key
 let conn_chain_and_key pconn =
     crucible_field (crucible_field pconn "handshake_params") "our_chain_and_key";
@@ -129,10 +125,6 @@ let setup_connection = do {
    message_number <- crucible_fresh_var "message_number" (llvm_int 32);
    crucible_points_to (conn_handshake_message_number pconn)
                       (crucible_term message_number);
-
-   hello_retry_request <- crucible_fresh_var "hello_retry_request" (llvm_int 8);
-   crucible_points_to (conn_handshake_hello_retry_request pconn)
-                      (crucible_term hello_retry_request);
 
    cork_val <- crucible_fresh_var "corked" (llvm_int 2);
    crucible_ghost_value corked cork_val;
@@ -179,6 +171,8 @@ let setup_connection = do {
 
    no_client_cert <- crucible_fresh_var "no_client_cert" (llvm_int 8);
 
+   hello_retry <- crucible_fresh_var "hello_retry" (llvm_int 8);
+
    let client_cert_auth_type = {{ if cca_ov != 0 then cca else config_cca }};
 
    // This return a connection containing a handshake. If the connection or the handshake
@@ -186,8 +180,7 @@ let setup_connection = do {
    return (pconn, {{ {corked_io = corked_io
                      ,mode      = mode
                      ,handshake = {message_number = message_number
-                                  ,handshake_type = handshake_type
-                                  ,hello_retry_request = hello_retry_request}
+                                  ,handshake_type = handshake_type}
                      ,corked    = cork_val
                      ,is_caching_enabled = False
                      ,key_exchange_eph = eph_flag != zero
@@ -199,6 +192,7 @@ let setup_connection = do {
                                          if mode == S2N_SERVER then client_cert_auth_type != 0 else False
                      ,actual_protocol_version = version
                      ,no_client_cert = no_client_cert != zero
+                     ,hello_retry = hello_retry != zero
                      }
                   }}); 
 };
@@ -278,7 +272,6 @@ let s2n_conn_set_handshake_type_spec = do {
     let conn' = {{ conn_set_handshake_type conn }};
     crucible_ghost_value corked {{ conn'.corked }};
     crucible_points_to (conn_handshake_handshake_type pconn) (crucible_term {{ conn'.handshake.handshake_type }});
-    crucible_points_to (conn_handshake_hello_retry_request pconn) (crucible_term {{ conn'.handshake.hello_retry_request }});
 
     // assert that s2n_conn_set_handshake_type returns 0 (true if the 4
     // functions it calls don't fail)
@@ -317,7 +310,7 @@ let s2n_advance_message_spec = do {
     crucible_points_to (crucible_global "handshakes") (crucible_term {{ handshakes }});
     crucible_points_to (crucible_global "tls13_handshakes") (crucible_term {{ tls13_handshakes }});
     
-    let messages = [ {{CLIENT_HELLO : [5]}}, {{SERVER_HELLO : [5]}}, {{SERVER_CERT : [5]}}, {{SERVER_NEW_SESSION_TICKET : [5]}}, {{SERVER_CERT_STATUS : [5]}}, 
+    let messages = [ {{CLIENT_HELLO : [5]}}, {{SERVER_HELLO : [5]}}, {{HELLO_RETRY_MSG : [5]}}, {{SERVER_CERT : [5]}}, {{SERVER_NEW_SESSION_TICKET : [5]}}, {{SERVER_CERT_STATUS : [5]}}, 
       {{SERVER_KEY : [5]}}, {{SERVER_CERT : [5]}}, {{SERVER_CERT_REQ : [5]}}, {{SERVER_HELLO_DONE : [5]}}, {{CLIENT_CERT : [5]}}, {{CLIENT_KEY : [5]}}, {{CLIENT_CERT_VERIFY : [5]}}, 
       {{CLIENT_CHANGE_CIPHER_SPEC : [5]}}, {{SERVER_FINISHED : [5]}}, {{ENCRYPTED_EXTENSIONS : [5]}}, {{SERVER_CERT_VERIFY : [5]}}, {{APPLICATION_DATA : [5]}} ];
 
