@@ -192,7 +192,6 @@ class _processCommunicator(object):
                     stderr=b''.join(stderr_seq) if stderr_seq else None)
 
 
-
 class ManagedProcess(threading.Thread):
     """
     A ManagedProcess is a thread that monitors a subprocess.
