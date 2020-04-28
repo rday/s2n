@@ -36,7 +36,7 @@ import s2n_handshake_io
 tls13rfcSimulatesS2N : {len} (fin len, len >= 1) => connection -> Parameters -> Bit
 tls13rfcSimulatesS2N conn params =
     (initial_connection conn /\ connectionParameters conn params) ==>
-         tracesMatchExcludingWaits
+        tracesMatchExcludingWaits
             (map rfc2S2N (doHandshake`{len} params))
             (traceS2N`{len} conn)
 
@@ -80,14 +80,14 @@ type Parameters = {
  */
 connectionParameters : connection -> Parameters -> Bit
 connectionParameters conn params = params.psk_mode == conn_psk_mode
+                                   /\ params.retry == conn_retry
                                    /\ params.client_auth == (conn_client_auth /\ ~params.psk_mode)
-                                   /\ params.retry == (conn_retry /\ params.retry)
                                    /\ params.no_client_cert == (conn_no_client_cert /\ params.client_auth)
                                    /\ params.zero_rtt == (conn_zero_rtt /\ params.psk_mode)
                                    /\ params.compat_mode == [ conn.mode != S2N_CLIENT, conn.mode == S2N_CLIENT ]
                                    /\ conn.actual_protocol_version == S2N_TLS13
   where conn_psk_mode =         False /* Not supported yet */
-        conn_retry =            conn.hello_retry
+        conn_retry =            False /* Not supported yet */
         conn_client_auth =      conn.client_auth_flag
         conn_no_client_cert =   conn.no_client_cert
         conn_zero_rtt =         False /* Not supported yet */
@@ -149,10 +149,10 @@ doHandshake params = (foldl doState initialHandshake (take`{n} (stateMachine par
  *                      |    +---------------------+
  *                      |    |  HELLO_RETRY_STATE  |
  *         if not retry |    |---------------------|
- *                      |    |serverHello (S)      |
+ *                      |    |helloRetryRequest (S)|
  *                      |    |* CCS (S)            |
- *                      |    |clientHello (C)      |
  *                      |    |* CCS (C)            |
+ *                      |    |clientHello (C)      |
  *                      |    +---------------------+
  *                      |        |
  *                      v        v
@@ -242,8 +242,8 @@ stateMachine params = iterate (\s -> stateFor s.next) CLIENT_START_STATE
 
         HELLO_RETRY_STATE = state 2 [
             action helloRetryRequest server True,
-            action changeCipherSpec server (~params.zero_rtt /\ compatMode server),
-            action changeCipherSpec server (compatMode client),
+            action changeCipherSpec server (compatMode server),
+            action changeCipherSpec client (~params.zero_rtt /\ compatMode client),
             action clientHello client True
         ] SERVER_HELLO_STATE
 
@@ -292,7 +292,7 @@ rfc2S2N msg = mkAct recordType messageType writer
         messageType = if recordType != TLS_HANDSHAKE then noMessageType
                       |  msg.messageType == clientHello then TLS_CLIENT_HELLO
                       |  msg.messageType == serverHello then TLS_SERVER_HELLO
-                      |  msg.messageType == helloRetryRequest then TLS_SERVER_HELLO
+                      |  msg.messageType == helloRetryRequest then TLS_HELLO_RETRY_REQUEST
                       |  msg.messageType == encryptedExtensions then TLS_ENCRYPTED_EXTENSIONS
                       |  msg.messageType == certificateRequest then TLS_CERTIFICATE_REQ
                       |  msg.messageType == certificate then TLS_CERTIFICATE
@@ -319,9 +319,9 @@ rfc2S2N msg = mkAct recordType messageType writer
 
 testParameters : Parameters
 testParameters = {
-            compat_mode = [True, False],
+            compat_mode = [False, False],
             psk_mode = False,
-            retry = True,
+            retry = False,
             client_auth = False,
             no_client_cert = False,
             zero_rtt = False
@@ -330,9 +330,8 @@ testParameters = {
 testConnection : connection
 testConnection = {
             handshake = {handshake_type = 0x00000000,
-                message_number = 0x00000000,
-                hello_retry_request = True},
-            mode = 0x00000001,
+                message_number = 0x00000000},
+            mode = 0x00000000,
             corked_io = '\NUL',
             corked = zero,
             is_caching_enabled = False,
@@ -362,7 +361,6 @@ s2nToWords action = name # [ '(', action.writer, ')']
                |  action.record_type == TLS_APPLICATION_DATA then padded      "Data"
                |  action.message_type == TLS_CLIENT_HELLO then padded         "ClientHello"
                |  action.message_type == TLS_SERVER_HELLO then padded         "ServerHello"
-               |  action.message_type == HELLO_RETRY_MSG then padded          "HelloRetryMsg"
                |  action.message_type == TLS_HELLO_RETRY_REQUEST then padded  "HelloRetryRequest"
                |  action.message_type == TLS_ENCRYPTED_EXTENSIONS then padded "EncryptedExtensions"
                |  action.message_type == TLS_CERTIFICATE_REQ then padded      "CertRequest"

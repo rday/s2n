@@ -30,7 +30,7 @@ conn_set_handshake_type conn = conn'
         full_handshake  = if (conn.is_caching_enabled /\ ~conn.resume_from_cache /\ ~IS_TLS13_HANDSHAKE conn)
                           then zero
                           else FULL_HANDSHAKE
-        perfect_forward_secrecy = if conn.key_exchange_eph
+        perfect_forward_secrecy = if (conn.key_exchange_eph /\ ~IS_TLS13_HANDSHAKE conn)
                                   then PERFECT_FORWARD_SECRECY
                                   else zero
         ocsp_status = if (conn.server_can_send_ocsp /\ ~IS_TLS13_HANDSHAKE conn)
@@ -56,8 +56,8 @@ advance_message conn = conn2
                 ,actual_protocol_version = conn.actual_protocol_version
                 ,no_client_cert = conn.no_client_cert
                 }
-        (handshake2 : handshake) = { handshake_type = conn.handshake.handshake_type
-                                     ,message_number = message_number2 }
+        (handshake2 : handshake) = { handshake_type = conn.handshake.handshake_type,
+                                     message_number = message_number2 }
         cork2 = if (ACTIVE_STATE conn2).writer != (ACTIVE_STATE conn).writer
                 then if (ACTIVE_STATE conn2).writer == mode_writer conn2.mode
                      then s2n_cork conn else s2n_uncork conn
@@ -83,7 +83,8 @@ conn_set_handshake_no_client_cert conn = conn2
                 ,no_client_cert = conn.no_client_cert
                 }
         (handshake' : handshake) = {handshake_type = handshake_type'
-                                   ,message_number = conn.handshake.message_number }
+                                   ,message_number = conn.handshake.message_number
+                                   }
         handshake_type' = if conn.client_auth_flag
                           then conn.handshake.handshake_type || NO_CLIENT_CERT
                           else conn.handshake.handshake_type
@@ -104,7 +105,6 @@ normalizeAfterData hsas = map snd (tail (scanl f (False, dataMsg) hsas))
           dataMsg = mkAct TLS_APPLICATION_DATA 0 'B'
 
 // match actions, but drop any with an 'A' writer from the second trace
-// BUG: We don't have an 'A' writer any longer.
 tracesMatchExcludingWaits: {n} (fin n, width n>=1) => [n]handshake_action -> [n]handshake_action -> Bit
 tracesMatchExcludingWaits xs ys = go 0 0 where
   go: [width n] -> [width n] -> Bit
@@ -183,7 +183,7 @@ ACTIVE_STATE conn = (ACTIVE_STATE_MACHINE conn) @ (ACTIVE_MESSAGE conn)
 next_message : connection -> [32]
 next_message conn = ((ACTIVE_HANDSHAKES conn) @ (conn.handshake.handshake_type))
                                               @ (conn.handshake.message_number + 1)
-
+                                              
 next_state : connection -> handshake_action
 next_state conn = (ACTIVE_STATE_MACHINE conn) @ (next_message conn)
 
@@ -218,7 +218,6 @@ tls13_state_machine_fn : [5] -> handshake_action
 tls13_state_machine_fn m =
   if      m == CLIENT_HELLO then mkAct TLS_HANDSHAKE TLS_CLIENT_HELLO 'C'
   else if m == SERVER_HELLO then mkAct TLS_HANDSHAKE TLS_SERVER_HELLO 'S'
-  else if m == HELLO_RETRY_MSG then mkAct TLS_HANDSHAKE TLS_SERVER_HELLO 'S'
   else if m == ENCRYPTED_EXTENSIONS then mkAct TLS_HANDSHAKE TLS_ENCRYPTED_EXTENSIONS 'S'
   else if m == SERVER_CERT then mkAct TLS_HANDSHAKE TLS_CERTIFICATE 'S'
   else if m == SERVER_CERT_REQ then mkAct TLS_HANDSHAKE TLS_CERTIFICATE_REQ 'S'
@@ -265,8 +264,6 @@ tls13_handshakes = [tls13_handshakes_fn h | h <- [0..255]]
 tls13_handshakes_fn: [32] -> [32][32]
 tls13_handshakes_fn handshk =
   if handshk == INITIAL then [CLIENT_HELLO, SERVER_HELLO] # zero
-  else if handshk == (INITIAL || HELLO_RETRY_REQUEST)  then
-    [CLIENT_HELLO, HELLO_RETRY_MSG] # zero
   else if handshk == (NEGOTIATED || FULL_HANDSHAKE) then
     [ CLIENT_HELLO,
       SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_CERT, SERVER_CERT_VERIFY, SERVER_FINISHED,
@@ -283,14 +280,6 @@ tls13_handshakes_fn handshk =
     [ CLIENT_HELLO,
       SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_CERT_REQ, SERVER_CERT,SERVER_CERT_VERIFY, SERVER_FINISHED,
       CLIENT_CHANGE_CIPHER_SPEC, CLIENT_CERT, CLIENT_FINISHED,
-      APPLICATION_DATA
-    ] # zero
-  else if handshk == (NEGOTIATED || FULL_HANDSHAKE || HELLO_RETRY_REQUEST) then
-    [ CLIENT_HELLO,
-      HELLO_RETRY_MSG,
-      CLIENT_HELLO,
-      SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_CERT, SERVER_CERT_VERIFY, SERVER_FINISHED,
-      CLIENT_CHANGE_CIPHER_SPEC, CLIENT_FINISHED,
       APPLICATION_DATA
     ] # zero
   else zero
@@ -466,15 +455,10 @@ handshakes_fn handshk =
 // (i.e. the fields are indexing into a valid state of the handshake
 // state machine)
 valid_handshake : handshake -> Bit
-
-//we use a where clause, so handshakefn is defined in the last line, go there first
-valid_handshake hs = handshakefn != zero /\                             //We must have actually found a handshake
-                     (hs.message_number < length handshakefn - 1) /\    //Our message number is not out of bounds for the handshake
-                     ((hs.message_number > 0) ==> (handshakefn@(hs.message_number + 1) != 0)) //If the message is greater than zero
-                     // We can advance the handshake and still find a next state
-                     where
-                        handshakefn = (handshakes_fn hs.handshake_type) //handshakefn is the handshake for a specific message type
-
+valid_handshake hs = handshakefn != zero /\
+                     (hs.message_number < length handshakefn - 1) /\
+                     ((hs.message_number > 0) ==> (handshakefn@(hs.message_number + 1) != 0)) where
+                     handshakefn = (handshakes_fn hs.handshake_type)
 
 valid_connection : connection -> Bit
 valid_connection conn = valid_handshake (conn.handshake)
@@ -483,7 +467,7 @@ valid_connection conn = valid_handshake (conn.handshake)
 initial_connection : connection -> Bit
 initial_connection conn = conn.handshake.handshake_type == INITIAL /\ conn.handshake.message_number == 0
     /\ (conn.corked == 0 \/ conn.corked == 1)
-
+    
 // Logical implication
 implies : Bit -> Bit -> Bit
 implies l r = if r then True else ~l
@@ -507,8 +491,6 @@ CLIENT_AUTH : [32]
 CLIENT_AUTH = zero # 0x10
 NO_CLIENT_CERT : [32]
 NO_CLIENT_CERT = zero # 0x40
-HELLO_RETRY_REQUEST : [32]
-HELLO_RETRY_REQUEST = zero # 0x80
 
 S2N_TLS13 : [8]
 S2N_TLS13 = 34
@@ -530,8 +512,7 @@ SERVER_CHANGE_CIPHER_SPEC = 13
 SERVER_FINISHED = 14
 ENCRYPTED_EXTENSIONS = 15
 SERVER_CERT_VERIFY = 16
-HELLO_RETRY_MSG = 17
-APPLICATION_DATA = 18
+APPLICATION_DATA = 17
 
 //TLS record type
 TLS_CHANGE_CIPHER_SPEC = 20
