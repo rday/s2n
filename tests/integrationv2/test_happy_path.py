@@ -6,7 +6,7 @@ import time
 from configuration import available_ports, CIPHERSUITES, CURVES, PROVIDERS
 from common import ProviderOptions, data_bytes
 from fixtures import managed_process
-from providers import S2N
+from providers import S2N, OpenSSL
 
 
 @pytest.mark.parametrize("cipher", CIPHERSUITES)
@@ -56,6 +56,53 @@ def test_s2n_server_happy_path(managed_process, cipher, curve, provider):
         assert results.exception is None
         assert results.exit_code == 0
         assert b"Actual protocol version: 34" in results.stdout
+        assert random_bytes in results.stdout
+
+
+@pytest.mark.parametrize("cipher", CIPHERSUITES)
+@pytest.mark.parametrize("curve", CURVES)
+def test_s2n_server_key_update(managed_process, cipher, curve):
+    host = "localhost"
+    port = next(available_ports)
+
+    # S2ND can receive large amounts of data because all the data is
+    # echo'd to stdout unmodified. This let's us compare received to
+    # expected easily.
+    random_bytes = b"k\nOnce More\nlala"
+    client_options = ProviderOptions(
+        mode="client",
+        host="localhost",
+        port=port,
+        cipher=cipher,
+        curve=curve,
+        data_to_send=random_bytes,
+        insecure=True,
+        tls13=True)
+
+    server_options = copy.copy(client_options)
+    server_options.data_to_send = None
+    server_options.mode = "server"
+    server_options.key = "../pems/ecdsa_p384_pkcs1_key.pem"
+    server_options.cert = "../pems/ecdsa_p384_pkcs1_cert.pem"
+
+    # Passing the type of client and server as a parameter will
+    # allow us to use a fixture to enumerate all possibilities.
+    server = managed_process(S2N, server_options, timeout=5)
+    client = managed_process(OpenSSL, client_options, timeout=5)
+
+    # The client will be one of all supported providers. We
+    # just want to make sure there was no exception and that
+    # the client exited cleanly.
+    for results in client.get_results():
+        assert results.exception is None
+        assert results.exit_code == 0
+
+    # The server is always S2N in this test, so we can examine
+    # the stdout reliably.
+    for results in server.get_results():
+        assert results.exception is None
+        assert results.exit_code == 0
+        assert b"Actual protocol version: 33" in results.stdout
         assert random_bytes in results.stdout
 
 
