@@ -148,7 +148,7 @@ class _processCommunicator(object):
                         # register STDIN to receive events. If there is no data to send,
                         # just mark input_send as true so we can close out STDIN.
                         if self.ready_to_send is not None and self.ready_to_send in str(data):
-                            if self.proc.stdin and input:
+                            if self.proc.stdin and input_data:
                                 selector.register(self.proc.stdin, selectors.EVENT_WRITE)
                             else:
                                 input_data_sent = True
