@@ -83,7 +83,12 @@ def main():
 
     failed = 0
 
-    print("\n\tRunning TLS1.3 handshake tests with openssl: %s" % os.popen('openssl version').read())
+    libcrypto = os.getenv('LIBCRYPTO_ROOT')
+    path = os.getenv('PATH')
+    ld_path = os.getenv('LD_LIBRARY_PATH')
+    os.putenv('PATH', '{}/bin:{}'.format(libcrypto, path))
+    os.putenv('LD_LIBRARY_PATH', '{}/lib:{}'.format(libcrypto, ld_path))
+    print("\n\tRunning TLS1.3 handshake tests with openssl: %s" % os.popen('echo $PATH; which openssl; openssl version').read())
     failed += run_openssl_connection_test(get_scenarios(host, port, versions=[Version.TLS13], s2n_modes=Mode.all(), ciphers=Cipher.all()))
     print("\n\tRunning TLS1.3 HRR tests with openssl: %s" % os.popen('openssl version').read())
     failed += run_openssl_connection_test(get_scenarios(host, port, versions=[Version.TLS13], s2n_modes=[Mode.server], ciphers=Cipher.all(),

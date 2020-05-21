@@ -62,8 +62,7 @@ fi
 
 # Install python linked with the latest Openssl for integration tests
 if [[ "$TESTS" == "integration" || "$TESTS" == "ALL" ]] && [[ ! -d "$PYTHON_INSTALL_DIR" ]]; then
-    mkdir -p "$PYTHON_INSTALL_DIR";
-    .travis/install_python.sh "$OPENSSL_1_1_1_INSTALL_DIR" "$(mktemp -d)" "$PYTHON_INSTALL_DIR" > /dev/null ;
+    codebuild/bin/install_python.sh
 fi
 
 # Download and Install GnuTLS for integration tests

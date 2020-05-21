@@ -16,21 +16,4 @@
 
 set -e
 
-if [ "$#" -ne 3 ]; then
-    echo "install_python.sh libcrypto_root build_dir install_dir"
-    exit 1
-fi
-
-LIBCRYPTO_ROOT=$1
-BUILD_DIR=$2
-INSTALL_DIR=$3
-source codebuild/bin/jobs.sh
-
-cd "$BUILD_DIR"
-# Originally from: https://www.python.org/ftp/python/3.6.0/Python-3.6.0.tgz
-curl --retry 3 https://s3-us-west-2.amazonaws.com/s2n-public-test-dependencies/2017-08-29_Python-3.6.0.tgz --output Python-3.6.0.tgz
-tar xzf Python-3.6.0.tgz
-cd Python-3.6.0
- CPPFLAGS="-I$LIBCRYPTO_ROOT/include" LDFLAGS="-Wl,-rpath,$LIBCRYPTO_ROOT/lib -L$LIBCRYPTO_ROOT/lib" ./configure --prefix="$INSTALL_DIR"
-make -j $JOBS
-make -j $JOBS install
+# sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
