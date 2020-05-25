@@ -223,6 +223,9 @@ class OpenSSL(Provider):
             cmd_line.extend(['-key', options.client_key_file])
             cmd_line.extend(['-cert', options.client_certificate_file])
 
+        if options.extra_flags is not None:
+            cmd_line.extend(options.extra_flags)
+
         # Clients are always ready to connect
         self.set_provider_ready()
 

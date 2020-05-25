@@ -35,13 +35,14 @@ def invalid_test_parameters(*args, **kwargs):
     curve = kwargs.get('curve')
 
     # If the selected protocol doesn't allow the cipher, don't test
-    if cipher.min_version > protocol:
-        return True
+    if cipher is not None:
+        if protocol is not None and cipher.min_version > protocol:
+            return True
 
-    # NOTE: We don't detect the version of OpenSSL at the moment,
-    # so we will deselect these tests.
-    if cipher.openssl1_1_1 is False:
-        return True
+        # NOTE: We don't detect the version of OpenSSL at the moment,
+        # so we will deselect these tests.
+        if cipher.openssl1_1_1 is False:
+            return True
 
     # If we are using a cipher that depends on a specific certificate algorithm
     # deselect the test of the wrong certificate is used.
