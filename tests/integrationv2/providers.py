@@ -131,12 +131,16 @@ class S2N(Provider):
         if options.protocol == Protocols.TLS13:
             cmd_line.append('--tls13')
 
-        cmd_line.extend(['-c', 'test_all'])
+        if options.cipher is not None:
+            cmd_line.extend(['-c', 'test_all'])
 
         if options.client_key_file:
             cmd_line.extend(['--key', options.client_key_file])
         if options.client_certificate_file:
             cmd_line.extend(['--cert', options.client_certificate_file])
+
+        if options.extra_flags is not None:
+            cmd_line.extend(options.extra_flags)
 
         cmd_line.extend([options.host, options.port])
 
@@ -162,7 +166,9 @@ class S2N(Provider):
         if options.protocol == Protocols.TLS13:
             cmd_line.append('--tls13')
 
-        cmd_line.extend(['-c', 'test_all'])
+        if options.cipher is not None:
+            cmd_line.extend(['-c', 'test_all'])
+
         if options.use_client_auth is True:
             cmd_line.append('-m')
             cmd_line.extend(['-t', options.client_certificate_file])
